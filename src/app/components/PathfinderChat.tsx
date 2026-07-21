@@ -206,7 +206,7 @@ export function PathfinderChat({
       >
         <img
           src={logo}
-          alt="Archer"
+          alt="Franklin"
           className="h-16 opacity-90 cursor-pointer transition-opacity hover:opacity-100"
           onClick={() => {
             /* logo click kept for visual consistency */
@@ -222,8 +222,8 @@ export function PathfinderChat({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10, transition: { duration: 0.2, ease: "easeIn" } }}
             transition={{ duration: 0.4, ease: "easeInOut" }}
-            className="absolute top-[72px] w-full max-w-5xl px-6 flex"
-            style={{ gap: "0rem", bottom: "160px" }}
+            className="absolute top-[72px] w-full max-w-6xl px-6 flex"
+            style={{ gap: "0rem", bottom: "130px" }}
           >
             <motion.div
               layout
@@ -285,10 +285,10 @@ export function PathfinderChat({
         initial={false}
         animate={{
           left: "50%",
-          top: isSearching ? "calc(100% - 90px)" : "50%",
+          top: isSearching ? "calc(100% - 80px)" : "50%",
           x: "-50%",
           y: "-50%",
-          maxWidth: isSearching ? "36rem" : "42rem",
+          maxWidth: isSearching ? "72rem" : "42rem",
         }}
         transition={{ duration: 0.7, ease: [0.34, 1.56, 0.64, 1] }}
       >
@@ -318,7 +318,7 @@ export function PathfinderChat({
             placeholder={isSearching ? "Ask a new question..." : "Search for career advice..."}
             className={`block w-full px-6 pr-16 border-2 border-[#173C7A] focus:outline-none bg-white shadow-md text-gray-800 resize-none overflow-hidden leading-[24px] ${
               isSearching || searchQuery.includes("\n") || searchQuery.length > 50
-                ? "py-5 rounded-3xl h-[100px]"
+                ? "py-[13px] rounded-3xl h-[50px]"
                 : "py-[14px] rounded-full h-[56px]"
             }`}
           />
@@ -327,7 +327,7 @@ export function PathfinderChat({
             disabled={isAsking}
             className={`absolute right-2 flex items-center justify-center w-[44px] h-[44px] bg-[#306FB8] hover:bg-[#173C7A] disabled:opacity-60 text-white rounded-full transition-transform hover:scale-110 active:scale-95 ${
               isSearching || searchQuery.includes("\n") || searchQuery.length > 50
-                ? "bottom-3 bg-[#173C7A]"
+                ? "top-1/2 -translate-y-1/2 bg-[#173C7A]"
                 : "top-1/2 -translate-y-1/2"
             }`}
           >

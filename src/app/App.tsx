@@ -156,7 +156,7 @@ export default function App() {
             <div className="h-[64px] flex items-center pl-5 pr-14 border-b border-[#173C7A]/10">
               <img
                 src={logo}
-                alt="Archer"
+                alt="Franklin"
                 className="h-7 cursor-pointer hover:opacity-80 transition-opacity"
                 onClick={handleNewChat}
               />

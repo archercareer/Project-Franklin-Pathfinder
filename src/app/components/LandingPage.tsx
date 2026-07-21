@@ -71,7 +71,7 @@ export function LandingPage() {
       >
         <motion.img
           src={logo}
-          alt="Archer Logo"
+          alt="Franklin Logo"
           className="h-20 mb-8"
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
