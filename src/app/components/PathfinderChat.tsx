@@ -222,8 +222,8 @@ export function PathfinderChat({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10, transition: { duration: 0.2, ease: "easeIn" } }}
             transition={{ duration: 0.4, ease: "easeInOut" }}
-            className="absolute top-[120px] w-full max-w-5xl px-6 flex"
-            style={{ gap: "0rem", bottom: "220px" }}
+            className="absolute top-[72px] w-full max-w-5xl px-6 flex"
+            style={{ gap: "0rem", bottom: "160px" }}
           >
             <motion.div
               layout
@@ -240,7 +240,7 @@ export function PathfinderChat({
                       )}
                       <span className="relative inline-flex rounded-full h-3 w-3 bg-[#306FB8]" />
                     </span>
-                    Archer AI Response
+                    Franklin Response
                   </h3>
                 </div>
                 {askError && (
@@ -285,10 +285,10 @@ export function PathfinderChat({
         initial={false}
         animate={{
           left: "50%",
-          top: isSearching ? "calc(100% - 150px)" : "50%",
+          top: isSearching ? "calc(100% - 90px)" : "50%",
           x: "-50%",
           y: "-50%",
-          maxWidth: isSearching ? "52rem" : "42rem",
+          maxWidth: isSearching ? "36rem" : "42rem",
         }}
         transition={{ duration: 0.7, ease: [0.34, 1.56, 0.64, 1] }}
       >
