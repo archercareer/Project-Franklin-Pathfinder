@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { ChevronDown, ChevronRight, Info } from "lucide-react";
-import { roadmapData, RoadmapRow } from "../data/roadmapData";
+import { roadmapData, type RoadmapRow } from "../data/roadmapData";
 
 export const Roadmap = () => {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set(["1", "1.1"]));
