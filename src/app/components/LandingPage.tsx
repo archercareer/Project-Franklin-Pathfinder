@@ -84,8 +84,7 @@ export function LandingPage() {
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.4 }}
         >
-          Navigate your professional journey with AI-driven insights, career roadmaps, and
-          actionable advice.
+          Navigate your professional journey with AI-driven insights and actionable advice.
         </motion.p>
 
         <motion.div

@@ -6,13 +6,10 @@ import {
   LogOut,
   Loader2,
   PanelLeft,
-  Compass,
-  Map,
   MessageSquare,
   Trash2,
 } from "lucide-react";
 import logo from "../imports/image.png";
-import { Roadmap } from "./components/Roadmap";
 import { LandingPage } from "./components/LandingPage";
 import { PathfinderChat } from "./components/PathfinderChat";
 import {
@@ -32,7 +29,6 @@ import {
 
 export default function App() {
   const { session, user, isGuest, loading, signOut } = useAuth();
-  const [currentView, setCurrentView] = useState<"pathfinder" | "roadmap">("pathfinder");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
@@ -89,12 +85,10 @@ export default function App() {
     setActiveConversationId(null);
     setLoadedMessages(null);
     setResetSignal((n) => n + 1);
-    setCurrentView("pathfinder");
   };
 
   const handleSelectConversation = async (id: string) => {
     setActiveConversationId(id);
-    setCurrentView("pathfinder");
     setLoadedMessages(null);
     try {
       const messages = await getConversationMessages(id);
@@ -162,34 +156,7 @@ export default function App() {
               />
             </div>
 
-            <div className="p-3 space-y-1">
-              <button
-                onClick={() => setCurrentView("pathfinder")}
-                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  currentView === "pathfinder"
-                    ? "bg-[#306FB8] text-white shadow-sm hover:scale-[1.02]"
-                    : "text-[#173C7A] hover:bg-[#173C7A]/5"
-                }`}
-              >
-                <Compass size={16} />
-                Pathfinder
-              </button>
-              <button
-                onClick={() => setCurrentView("roadmap")}
-                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  currentView === "roadmap"
-                    ? "bg-[#306FB8] text-white shadow-sm hover:scale-[1.02]"
-                    : "text-[#173C7A] hover:bg-[#173C7A]/5"
-                }`}
-              >
-                <Map size={16} />
-                Roadmap
-              </button>
-            </div>
-
-            <div className="mx-3 h-px bg-[#173C7A]/10 my-1.5" />
-
-            <div className="px-3 pt-1">
+            <div className="px-3 pt-3">
               <button
                 onClick={handleNewChat}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -318,18 +285,14 @@ export default function App() {
         animate={{ left: isSidebarOpen ? "16rem" : "0rem" }}
         transition={{ duration: 0.2, ease: "easeOut" }}
       >
-        {currentView === "pathfinder" ? (
-          <PathfinderChat
-            key={`pathfinder-${resetSignal}`}
-            activeConversationId={activeConversationId}
-            onActiveConversationChange={setActiveConversationId}
-            onConversationsChange={refreshConversations}
-            loadedMessages={loadedMessages}
-            resetSignal={resetSignal}
-          />
-        ) : (
-          <Roadmap />
-        )}
+        <PathfinderChat
+          key={`pathfinder-${resetSignal}`}
+          activeConversationId={activeConversationId}
+          onActiveConversationChange={setActiveConversationId}
+          onConversationsChange={refreshConversations}
+          loadedMessages={loadedMessages}
+          resetSignal={resetSignal}
+        />
       </motion.div>
     </div>
   );

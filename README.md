@@ -18,10 +18,7 @@ This repo holds **only the frontend**. All the data, accounts, and AI work happe
 
 **Not signed in** → a landing page with three ways in: create an account, sign in, or continue as a guest.
 
-**Signed in** → the app, with two tabs in the sidebar:
-
-- **Pathfinder** — the chat. Ask a question, get an answer that types itself out, with links and worksheets clickable inline. Past chats are listed under "Recent" and can be reopened or deleted.
-- **Roadmap** — a table of the program's phases, processes, and tasks, which you can expand and collapse level by level.
+**Signed in** → the app: the Pathfinder chat. Ask a question, get an answer that types itself out, with links and worksheets clickable inline. Past chats are listed under "Recent" in the sidebar and can be reopened or deleted.
 
 ---
 
@@ -186,14 +183,11 @@ and the ingestion and classification functions (`auto-ingest`, `batch-ingest`,
 └── src/
     ├── main.tsx                  # Entry point; wraps the app in AuthProvider
     ├── app/
-    │   ├── App.tsx               # Sidebar, sign-in gate, Pathfinder/Roadmap switch
-    │   ├── components/
-    │   │   ├── LandingPage.tsx   # Sign in / sign up / guest
-    │   │   ├── PathfinderChat.tsx  # The chat: input, typing effect, saving
-    │   │   ├── FormattedAnswer.tsx # Turns answer text into headings, lists, links
-    │   │   └── Roadmap.tsx       # Expandable phases/processes/tasks table
-    │   └── data/
-    │       └── roadmapData.ts    # The rows the Roadmap table displays
+    │   ├── App.tsx               # Sidebar, sign-in gate, chat shell
+    │   └── components/
+    │       ├── LandingPage.tsx   # Sign in / sign up / guest
+    │       ├── PathfinderChat.tsx  # The chat: input, typing effect, saving
+    │       └── FormattedAnswer.tsx # Turns answer text into headings, lists, links
     ├── lib/
     │   ├── supabaseClient.ts     # Creates the Supabase client from .env
     │   ├── AuthProvider.tsx      # Session state and sign-in/out functions
