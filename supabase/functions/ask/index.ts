@@ -1,4 +1,7 @@
-// Project Franklin — ask (v21)
+// Project Franklin — ask (v22)
+// v22 (M3-M6): answer length raised and the hard sentence cap dropped; all text blocks are read
+//      instead of content[0]; paused turns are resumed; web search tool errors are surfaced
+//      instead of being mistaken for success.
 // Pipeline: fetch framework (CSV) → parallel [embed query | classify query to <=3 pairs]
 //   → reference-filtered vector search → 3-layer prompt → generate.
 // v21: the closing next-step now states the actual framework Task text (not just "this worksheet"),
@@ -14,6 +17,8 @@ const DEFAULT_MODEL = "claude-sonnet-4-6";
 const CLASSIFY_MODEL = Deno.env.get("CLASSIFY_MODEL") ?? DEFAULT_MODEL;
 const ANSWER_MODEL   = Deno.env.get("ANSWER_MODEL")   ?? DEFAULT_MODEL;
 const TOP_K = 5;
+const ANSWER_MAX_TOKENS = 2000;
+const MAX_PAUSE_RESUMES = 3;
 
 const SHEET_ID = "1e--YxqN7X6vaoObkqgjGBgt5BTzeDyW-9-pCKzjlcps";
 const GID = "442416528";
@@ -168,6 +173,23 @@ Return STRICT JSON only, no prose, no fences: {"refs":["p.p", ...]}`;
   return { pairs, zero: false, invalid: false };
 }
 
+// ---------- answer blocks ----------
+// Responses can carry more than one block once web search is on (server_tool_use,
+// web_search_tool_result, text). Never index content[0].
+function textFromBlocks(blocks: any[]): string {
+  return (blocks ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+}
+
+// Search failures come back as HTTP 200: a web_search_tool_result whose content is an error
+// object instead of an array of results. Collect them so we never answer as if search worked.
+function searchErrors(blocks: any[]): string[] {
+  return (blocks ?? [])
+    .filter((b: any) => b.type === "web_search_tool_result")
+    .map((b: any) => b.content)
+    .filter((c: any) => c && !Array.isArray(c))
+    .map((c: any) => String(c.error_code ?? "unknown"));
+}
+
 function jsonResp(obj: unknown, status = 200) {
   return new Response(JSON.stringify(obj, null, 2), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 }
@@ -249,19 +271,36 @@ You're given three layers: (1) the coaching framework for the process(es) this q
 
 Rules:
 - Base your answer on the context you're given. If it doesn't really cover what they're asking, say so honestly rather than guessing.
-- Keep it tight and useful — 3 to 6 sentences, or a short bulleted list if that reads more clearly.
+- Give the answer the room it needs — usually two or three short paragraphs, or a short bulleted list where that reads more clearly. Don't pad, and don't cut a useful thought short to hit a length.
 - Where it helps, point them to a specific next task or expected output from the framework, not just a vague pointer.
 - Get straight to the answer — no restating the question, no throat-clearing.${taskNote}${fallbackNote}`;
 
   const userPrompt = `LAYER 1 — Coaching framework context:\n${layer1}\n\n---\n\nLAYER 2 — Retrieved program excerpts:\n${layer2 || "(none)"}\n\n---\n\nLAYER 3 — Student question:\n${query}`;
 
-  const genRes = await fetch(ANTHROPIC_API, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: ANSWER_MODEL, max_tokens: 500, system: systemPrompt, messages: [{ role: "user", content: userPrompt }] }),
-  });
-  if (!genRes.ok) return jsonResp({ error: `Claude failed: ${await genRes.text()}` }, 500);
-  let answer = (await genRes.json()).content[0].text as string;
+  // Web search can pause a turn partway through; resume by handing the paused content back
+  // and letting the model continue. Bounded so a pause loop can't run away.
+  const genMessages: any[] = [{ role: "user", content: userPrompt }];
+  const answerBlocks: any[] = [];
+  const searchFailures: string[] = [];
+
+  for (let resumes = 0; ; resumes++) {
+    const genRes = await fetch(ANTHROPIC_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: ANSWER_MODEL, max_tokens: ANSWER_MAX_TOKENS, system: systemPrompt, messages: genMessages }),
+    });
+    if (!genRes.ok) return jsonResp({ error: `Claude failed: ${await genRes.text()}` }, 500);
+    const genData = await genRes.json();
+    answerBlocks.push(...(genData.content ?? []));
+    searchFailures.push(...searchErrors(genData.content));
+    if (genData.stop_reason !== "pause_turn" || resumes >= MAX_PAUSE_RESUMES) break;
+    genMessages.push({ role: "assistant", content: genData.content });
+  }
+
+  let answer = textFromBlocks(answerBlocks);
+  if (!answer.trim()) {
+    return jsonResp({ error: "empty_answer", search_errors: searchFailures }, 502);
+  }
 
   let selectedTask: string | null = null;
   let worksheets: string[] = [];
@@ -281,8 +320,9 @@ Rules:
     const cl = classified.map((c) => `${c.phase}.${c.process} ${c.phase_name} → ${c.process_name}`).join("; ");
     const srcs = sources.map((s) => `  [${s.source}] (${s.similarity}) ${s.refs?.join(",")} ${s.preview}`).join("\n");
     const ws = worksheets.length ? worksheets.map((w) => `  ${w}`).join("\n") : "  (none)";
-    return new Response([d, `QUESTION: ${query}`, `CLASSIFIED: ${cl}`, `SELECTED TASK: ${selectedTask ?? "none"}`, `MODELS: classify=${CLASSIFY_MODEL} answer=${ANSWER_MODEL}`, `FILTERED: ${wasFiltered}`, d, answer, d, "WORKSHEETS (selected task only)", ws, d, "SOURCES", srcs, d].join("\n"),
+    const se = searchFailures.length ? searchFailures.join(", ") : "(none)";
+    return new Response([d, `QUESTION: ${query}`, `CLASSIFIED: ${cl}`, `SELECTED TASK: ${selectedTask ?? "none"}`, `MODELS: classify=${CLASSIFY_MODEL} answer=${ANSWER_MODEL}`, `FILTERED: ${wasFiltered}`, `SEARCH ERRORS: ${se}`, d, answer, d, "WORKSHEETS (selected task only)", ws, d, "SOURCES", srcs, d].join("\n"),
       { headers: { ...CORS, "Content-Type": "text/plain" } });
   }
-  return jsonResp({ answer, classified, selected_task: selectedTask, framework_refs_used: refsUsed, was_filtered: wasFiltered, worksheets, sources });
+  return jsonResp({ answer, classified, selected_task: selectedTask, framework_refs_used: refsUsed, was_filtered: wasFiltered, worksheets, sources, search_errors: searchFailures });
 });
