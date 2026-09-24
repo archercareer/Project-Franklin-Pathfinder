@@ -8,10 +8,12 @@ import {
   PanelLeft,
   MessageSquare,
   Trash2,
+  ExternalLink,
 } from "lucide-react";
 import logo from "../imports/image.png";
 import { LandingPage } from "./components/LandingPage";
 import { PathfinderChat } from "./components/PathfinderChat";
+import { supabaseConfigError } from "@/lib/supabaseClient";
 import {
   useAuth,
   getDisplayName,
@@ -27,8 +29,62 @@ import {
   type ChatMessage,
 } from "@/lib/conversations";
 
+const coaches = [
+  {
+    name: "Job Search Coach",
+    description: "Build a focused target list",
+    initials: "JS",
+    href: "https://chatgpt.com/g/g-6994a70db24c8191a903c64842cf85df-archer-job-search-target-list",
+    color: "bg-[#eee9fb] text-[#6f4fb5]",
+  },
+  {
+    name: "Networking Coach",
+    description: "Build meaningful relationships",
+    initials: "NC",
+    href: "https://chatgpt.com/g/g-691d0b3e51208191a91890adf323089f-archer-networking-coach",
+    color: "bg-[#e8f4f2] text-[#438f83]",
+  },
+  {
+    name: "Resume Coach",
+    description: "Align your credentials",
+    initials: "RC",
+    href: "https://chatgpt.com/g/g-688a2d3690788191a2b3a32bd6449032-archer-resume-coach",
+    color: "bg-[#f9ece8] text-[#c86d5e]",
+  },
+  {
+    name: "Interview Coach",
+    description: "Master the interview",
+    initials: "IC",
+    href: "https://chatgpt.com/g/g-68c4389c741c81919b4a0f3dacf0b555-archer-interview-coach",
+    color: "bg-[#f5f0e3] text-[#b48b3d]",
+  },
+] as const;
+
 export default function App() {
-  const { session, user, isGuest, loading, signOut } = useAuth();
+  const isPreview =
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get("preview") === "true";
+
+  if (supabaseConfigError && !isPreview) {
+    return (
+      <div className="min-h-screen w-screen flex items-center justify-center bg-white px-6 text-center">
+        <div>
+          <h1 className="text-xl font-semibold text-[#173C7A]">
+            Franklin is not configured
+          </h1>
+          <p className="mt-2 text-gray-600">
+            This app is temporarily unavailable. Please try again later.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return <ConfiguredApp />;
+}
+
+function ConfiguredApp() {
+  const { session, user, isGuest, isPreview, loading, signOut } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
@@ -37,6 +93,7 @@ export default function App() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [loadedMessages, setLoadedMessages] = useState<ChatMessage[] | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   const refreshConversations = useCallback(async () => {
     setConversationsLoading(true);
@@ -68,7 +125,7 @@ export default function App() {
     );
   }
 
-  if (!session) {
+  if (!session && !isPreview) {
     return <LandingPage />;
   }
 
@@ -92,13 +149,6 @@ export default function App() {
     setLoadedMessages(null);
     try {
       const messages = await getConversationMessages(id);
-      if (messages.length === 0) {
-        await deleteConversation(id);
-        setActiveConversationId(null);
-        setLoadedMessages(null);
-        await refreshConversations();
-        return;
-      }
       setLoadedMessages(messages);
     } catch {
       setLoadedMessages([]);
@@ -106,6 +156,7 @@ export default function App() {
   };
 
   const handleDeleteConversation = async (id: string) => {
+    setConfirmingDeleteId(null);
     try {
       await deleteConversation(id);
       if (activeConversationId === id) {
@@ -156,7 +207,7 @@ export default function App() {
               />
             </div>
 
-            <div className="px-3 pt-3">
+            <div className="px-3 pt-1">
               <button
                 onClick={handleNewChat}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -165,6 +216,46 @@ export default function App() {
                 New Chat
               </button>
             </div>
+
+            <div className="mx-3 h-px bg-[#173C7A]/10 my-1.5" />
+
+            <div className="px-3 pt-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 px-2 mb-1.5">
+                Coaches
+              </p>
+              <nav aria-label="Career coaches" className="space-y-0.5">
+                {coaches.map((coach) => (
+                  <a
+                    key={coach.name}
+                    href={coach.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group flex items-center gap-2.5 px-2 py-2 rounded-lg text-[#173C7A] hover:bg-[#173C7A]/5 transition-colors"
+                  >
+                    <span
+                      className={`w-7 h-7 shrink-0 rounded-md flex items-center justify-center text-[10px] font-bold ${coach.color}`}
+                    >
+                      {coach.initials}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12px] font-semibold truncate leading-tight">
+                        {coach.name}
+                      </span>
+                      <span className="block text-[10px] text-gray-400 truncate mt-0.5">
+                        {coach.description}
+                      </span>
+                    </span>
+                    <ExternalLink
+                      size={13}
+                      aria-hidden="true"
+                      className="shrink-0 text-gray-300 group-hover:text-[#306FB8] transition-colors"
+                    />
+                  </a>
+                ))}
+              </nav>
+            </div>
+
+            <div className="mx-3 h-px bg-[#173C7A]/10 my-1.5" />
 
             <div className="flex-1 min-h-0 flex flex-col px-3 pt-3 pb-1">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 px-2 mb-2">
@@ -186,30 +277,54 @@ export default function App() {
                       activeConversationId === conv.id ? "bg-[#306FB8]/10" : "hover:bg-gray-50"
                     }`}
                   >
-                    <button
-                      type="button"
-                      onClick={() => handleSelectConversation(conv.id)}
-                      className={`flex-1 min-w-0 text-left px-2.5 py-2 rounded-lg transition-colors ${
-                        activeConversationId === conv.id ? "text-[#173C7A]" : "text-gray-700"
-                      }`}
-                    >
-                      <p className="text-[13px] font-medium truncate leading-tight">{conv.title}</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">
-                        {formatConversationDate(conv.updated_at)}
-                      </p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteConversation(conv.id)}
-                      aria-label={`Delete chat: ${conv.title}`}
-                      className={`shrink-0 p-2 mr-0.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all ${
-                        activeConversationId === conv.id
-                          ? "opacity-100"
-                          : "opacity-0 group-hover:opacity-100"
-                      }`}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {confirmingDeleteId === conv.id ? (
+                      <div className="flex-1 flex items-center justify-between gap-2 px-2 py-1.5">
+                        <span className="text-[12px] font-medium text-gray-700">Delete chat?</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteConversation(conv.id)}
+                            className="px-2 py-1 rounded-md text-[11px] font-medium text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            Delete?
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmingDeleteId(null)}
+                            className="px-2 py-1 rounded-md text-[11px] font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectConversation(conv.id)}
+                          className={`flex-1 min-w-0 text-left px-2.5 py-2 rounded-lg transition-colors ${
+                            activeConversationId === conv.id ? "text-[#173C7A]" : "text-gray-700"
+                          }`}
+                        >
+                          <p className="text-[13px] font-medium truncate leading-tight">{conv.title}</p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">
+                            {formatConversationDate(conv.updated_at)}
+                          </p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmingDeleteId(conv.id)}
+                          aria-label={`Delete chat: ${conv.title}`}
+                          className={`shrink-0 p-2 mr-0.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all ${
+                            activeConversationId === conv.id
+                              ? "opacity-100"
+                              : "opacity-0 group-hover:opacity-100"
+                          }`}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
