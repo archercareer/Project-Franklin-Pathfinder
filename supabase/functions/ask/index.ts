@@ -1,12 +1,10 @@
-// Project Franklin — ask (v22)
-// v22 (M3-M6): answer length raised and the hard sentence cap dropped; all text blocks are read
+// Project Franklin — ask (v23)
+// v22: removed Ascent-specific framing (general career-coaching product now); tone/structure
+//      pass on the system prompt — match tone to the person, always close with a next step or
+//      clarifying question, warm peer voice, explicit honesty when content doesn't cover it.
+// v23 (M3-M6): answer length raised and the hard sentence cap dropped; all text blocks are read
 //      instead of content[0]; paused turns are resumed; web search tool errors are surfaced
 //      instead of being mistaken for success.
-// Pipeline: fetch framework (CSV) → parallel [embed query | classify query to <=3 pairs]
-//   → reference-filtered vector search → 3-layer prompt → generate.
-// v21: the closing next-step now states the actual framework Task text (not just "this worksheet"),
-//      then provides the worksheet link. Task-driven selection via hidden [[task:P.Q.N]] tag.
-// Models env-configurable: CLASSIFY_MODEL / ANSWER_MODEL (default claude-sonnet-4-6).
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -142,7 +140,7 @@ function frameworkList(fw: Framework): string {
 // ---------- query classification ----------
 interface Pair { phase: number; process: number; }
 async function classifyQuery(query: string, fw: Framework, key: string): Promise<{ pairs: Pair[]; zero: boolean; invalid: boolean }> {
-  const sys = `You classify a student's career-coaching question against a fixed framework.
+  const sys = `You classify a person's career-coaching question against a fixed framework.
 
 FRAMEWORK (phase.process):
 ${frameworkList(fw)}
@@ -220,10 +218,10 @@ Deno.serve(async (req) => {
   ]);
 
   if (cls.invalid) {
-    return jsonResp({ answer: "That one's outside my lane — I'm here specifically to help with the Archer Ascent job search program, so ask me anything about your search strategy, resume, networking, or interviews.", classified: [], worksheets: [] });
+    return jsonResp({ answer: "That one's outside what I can help with — I'm focused on career and job-search coaching. What are you working on? I can dig into search strategy, positioning, networking, resumes and cover letters, or interviews.", classified: [], worksheets: [] });
   }
   if (cls.zero) {
-    return jsonResp({ answer: "That falls outside what Ascent program covers, but I'm happy to help with career direction, positioning, networking, resumes and cover letters, interviews, or managing your job search day to day.", classified: [], worksheets: [] });
+    return jsonResp({ answer: "That's outside what I can help with here, but I'm glad to get into career direction, positioning, networking, resumes and cover letters, interviews, or managing your job search day to day — what would be most useful?", classified: [], worksheets: [] });
   }
 
   if (!embedRes.ok) return jsonResp({ error: `Voyage failed: ${await embedRes.text()}` }, 500);
@@ -262,20 +260,31 @@ Deno.serve(async (req) => {
     "\n\nOne more thing: nothing matched this exact process, so the sources below are the closest general fit — use them, but don't imply they're an exact match."
 
   const taskNote = anyLinksPresent.v
-    ? "\n- You'll see framework tasks tagged like 4.7.1, each with a description and, for some, a worksheet link. - Pick the ONE task that best fits what the student is actually asking. - Close your answer with a clear, specific next step written in your own words — describe what they should actually go do, don't just say \"work on this worksheet.\" - If that task has a worksheet, add it as a real markdown link so it renders as something clickable, not a raw URL — e.g. \"Your next step: <describe the task specifically>. Here's the worksheet to help: [Open the worksheet](<link>).\" If there's no worksheet, just state the next step on its own. - On the very last line, output a tag naming that task exactly as [[task:P.Q.N]] (e.g. [[task:4.7.1]]), or [[task:none]] if nothing genuinely matches. Nothing should follow this tag."
+    ? "\n- You'll see framework tasks tagged like 4.7.1, each with a description and, for some, a worksheet link. - Pick the ONE task that best fits what the person is actually asking. - Close your answer with a clear, specific next step written in your own words — describe what they should actually go do, don't just say \"work on this worksheet.\" - If that task has a worksheet, add it as a real markdown link so it renders as something clickable, not a raw URL — e.g. \"Your next step: <describe the task specifically>. Here's the worksheet to help: [Open the worksheet](<link>).\" If there's no worksheet, just state the next step on its own. - On the very last line, output a tag naming that task exactly as [[task:P.Q.N]] (e.g. [[task:4.7.1]]), or [[task:none]] if nothing genuinely matches. Nothing should follow this tag."
     : "";
 
-  const systemPrompt = `You are a concise career coaching assistant for the Archer Ascent Job Search Accelerator.
+  const systemPrompt = `You are Pathfinder, a career-coaching assistant. You help people navigate their careers — direction and positioning, networking, resumes and cover letters, interviews, and running a job search day to day.
 
-You're given three layers: (1) the coaching framework for the process(es) this question touches — pain points, tasks, expected outputs, and worksheet links where they exist; (2) a few relevant excerpts pulled from the program's materials; (3) the student's actual question.
+You're given three layers: (1) a coaching framework for the area(s) this question touches — pain points, tasks, expected outputs, and worksheet links where they exist; (2) a few relevant excerpts from the available coaching materials; (3) the person's actual question.
 
-Rules:
-- Base your answer on the context you're given. If it doesn't really cover what they're asking, say so honestly rather than guessing.
-- Give the answer the room it needs — usually two or three short paragraphs, or a short bulleted list where that reads more clearly. Don't pad, and don't cut a useful thought short to hit a length.
-- Where it helps, point them to a specific next task or expected output from the framework, not just a vague pointer.
-- Get straight to the answer — no restating the question, no throat-clearing.${taskNote}${fallbackNote}`;
+How to respond:
+- Read where the person is and meet them there. Match your tone to their situation instead of using one register for everyone:
+  - Just got good news (an interview, a callback, a referral) → match their energy, help them act on the momentum quickly. Don't just say "congrats," get straight to the useful next move.
+  - Just got a rejection or a setback → briefly acknowledge it, then redirect to something concrete. Don't dwell or over-console.
+  - Deciding between competing options → give them a repeatable way to think it through, not just your opinion.
+  - Overconfident, or there's a real gap or weak spot in their plan → say so plainly and directly. You're allowed to disagree and push back, not just validate. Being honest about a real problem is more useful than being encouraging about it.
+  - Seems stuck or hasn't taken any action → a gentle, direct nudge toward one small next step. Not a lecture.
+  - Still figuring out direction, early in a question → prioritize understanding their actual situation before advising. Don't jump straight to a solution.
+  - Anxious or overwhelmed → steady them, then give one concrete move.
+  - Just wants a fact → give a crisp, direct answer, skip the coaching framing.
+  - Clearly deep in the work already → match their level, skip the basics.
+- Sound like a sharp peer who has done this before — warm, direct, human. Not a brochure, not a lecture. No pep-talk clichés, no "as an AI", no throat-clearing, no restating the question.
+- Give the answer the room it needs, and no more. Most replies land in two or three short paragraphs, or a short bulleted list when that is genuinely clearer. Don't pad, and don't cut a useful thought short to hit a length.
+- Never use em dashes. If a sentence seems to need one, rewrite it instead, use a period, comma, or "and"/"but" to connect the thought.
+- Stay inside what you were given. If the framework and excerpts don't really cover what they're asking, say so plainly instead of filling the gap with a guess — then point them to the closest thing that would actually help.
+- Never end on a bare statement of information. Close every reply with either a clear next step — something specific they can go do, in your own words — or a genuine clarifying question when you can't give a useful answer without knowing more.${taskNote}${fallbackNote}`;
 
-  const userPrompt = `LAYER 1 — Coaching framework context:\n${layer1}\n\n---\n\nLAYER 2 — Retrieved program excerpts:\n${layer2 || "(none)"}\n\n---\n\nLAYER 3 — Student question:\n${query}`;
+  const userPrompt = `LAYER 1 — Coaching framework context:\n${layer1}\n\n---\n\nLAYER 2 — Retrieved program excerpts:\n${layer2 || "(none)"}\n\n---\n\nLAYER 3 — Person's question:\n${query}`;
 
   // Web search can pause a turn partway through; resume by handing the paused content back
   // and letting the model continue. Bounded so a pause loop can't run away.
@@ -316,7 +325,7 @@ Rules:
     similarity: Math.round(c.similarity * 1000) / 1000, preview: c.content.slice(0, 120) + "..." }));
 
   if (pretty) {
-    const d = "\u2500".repeat(60);
+    const d = "─".repeat(60);
     const cl = classified.map((c) => `${c.phase}.${c.process} ${c.phase_name} → ${c.process_name}`).join("; ");
     const srcs = sources.map((s) => `  [${s.source}] (${s.similarity}) ${s.refs?.join(",")} ${s.preview}`).join("\n");
     const ws = worksheets.length ? worksheets.map((w) => `  ${w}`).join("\n") : "  (none)";
