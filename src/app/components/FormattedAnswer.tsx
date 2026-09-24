@@ -1,4 +1,5 @@
 import React from "react";
+import { FileText, ExternalLink } from "lucide-react";
 
 type InlineSegment =
   | { type: "text"; content: string }
@@ -8,8 +9,15 @@ type InlineSegment =
   | { type: "link"; content: string; href: string }
   | { type: "raw_link"; content: string; href: string };
 
-function trimUrlPunctuation(url: string): string {
-  return url.replace(/[.,;:!?]+$/, "");
+/**
+ * Peels sentence punctuation off the end of a bare URL. The URL becomes the link,
+ * the punctuation goes back into the prose — otherwise it disappears, since a bare
+ * URL renders as a pill rather than as its own text.
+ */
+function splitUrlPunctuation(url: string): { url: string; trailing: string } {
+  const trailing = url.match(/[.,;:!?]+$/);
+  if (!trailing) return { url, trailing: "" };
+  return { url: url.slice(0, -trailing[0].length), trailing: trailing[0] };
 }
 
 function tokenizeInline(text: string): InlineSegment[] {
@@ -35,12 +43,11 @@ function tokenizeInline(text: string): InlineSegment[] {
     } else if (match[10]) {
       segments.push({ type: "italic", content: match[11] });
     } else if (match[12]) {
-      const raw = match[12];
-      segments.push({
-        type: "raw_link",
-        content: raw,
-        href: trimUrlPunctuation(raw),
-      });
+      const { url, trailing } = splitUrlPunctuation(match[12]);
+      segments.push({ type: "raw_link", content: url, href: url });
+      if (trailing) {
+        segments.push({ type: "text", content: trailing });
+      }
     }
     lastIndex = match.index + match[0].length;
   }
@@ -65,6 +72,29 @@ function renderLink(
       className="text-[#306FB8] underline decoration-[#306FB8]/40 underline-offset-2 hover:decoration-[#306FB8] transition-colors break-all"
     >
       {label}
+    </a>
+  );
+}
+
+/**
+ * Bare URLs in an answer are worksheet links. Showing the URL itself buries the
+ * sentence under 60 characters of Drive gibberish, so render a compact pill instead
+ * and keep the address in the tooltip.
+ */
+function renderWorksheetPill(key: number, href: string): React.ReactNode {
+  return (
+    <a
+      key={key}
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={href}
+      aria-label={`Open worksheet (${href})`}
+      className="inline-flex items-center gap-1.5 align-middle whitespace-nowrap no-underline rounded-full px-2.5 py-1 text-[13px] font-medium bg-[#306FB8]/10 hover:bg-[#306FB8]/20 border border-[#306FB8]/20 text-[#173C7A] transition-colors"
+    >
+      <FileText size={14} className="shrink-0" />
+      Open worksheet
+      <ExternalLink size={12} className="shrink-0 opacity-70" />
     </a>
   );
 }
@@ -97,7 +127,7 @@ function renderInline(text: string): React.ReactNode[] {
       case "link":
         return renderLink(i, seg.href, seg.content);
       case "raw_link":
-        return renderLink(i, seg.href, seg.content);
+        return renderWorksheetPill(i, seg.href);
       default:
         return <React.Fragment key={i}>{seg.content}</React.Fragment>;
     }

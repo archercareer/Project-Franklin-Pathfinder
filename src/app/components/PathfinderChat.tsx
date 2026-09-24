@@ -48,8 +48,9 @@ export function PathfinderChat({
   const [composerHeight, setComposerHeight] = useState(56);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const conversationIdRef = useRef<string | null>(activeConversationId);
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const shouldAutoScrollRef = useRef(true);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const isAtBottomRef = useRef(true);
 
   const hasMessages = messages.length > 0;
   const showChatPanel = hasMessages || isAsking || activeConversationId !== null;
@@ -78,7 +79,7 @@ export function PathfinderChat({
     setTypedText("");
     setAnimatingMessageId(null);
     setIsAsking(false);
-    shouldAutoScrollRef.current = true;
+    isAtBottomRef.current = true;
   }, [resetSignal]);
 
   useEffect(() => {
@@ -88,7 +89,7 @@ export function PathfinderChat({
       setTypedText("");
       setAnimatingMessageId(null);
       setIsAsking(false);
-      shouldAutoScrollRef.current = true;
+      isAtBottomRef.current = true;
     }
   }, [loadedMessages]);
 
@@ -115,20 +116,33 @@ export function PathfinderChat({
     return () => clearInterval(interval);
   }, [animatingMessageId, fullText]);
 
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (container && shouldAutoScrollRef.current) {
-      container.scrollTop = container.scrollHeight;
-    }
-  }, [messages.length, typedText]);
-
+  // Only follow the bottom while the reader is already there. The answer grows every
+  // 15ms as it types, so following unconditionally would yank the view back down each
+  // tick and make it impossible to scroll up and re-read an earlier answer mid-response.
   const handleScroll = () => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    shouldAutoScrollRef.current =
-      container.scrollHeight - container.scrollTop - container.clientHeight <= 80;
+    const el = scrollRef.current;
+    if (!el) return;
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
+
+  // Watch the transcript's height rather than reacting to state changes: the answer's
+  // rendered height and the typedText that produced it don't grow in lockstep, so a
+  // render-driven scroll lands on a stale measurement.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const content = contentRef.current;
+    if (!el || !content) return;
+
+    const followBottom = () => {
+      if (!isAtBottomRef.current) return;
+      el.scrollTop = el.scrollHeight;
+    };
+
+    followBottom();
+    const observer = new ResizeObserver(followBottom);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [showChatPanel]);
 
   const handleSearch = async () => {
     const queryToAsk = searchQuery.trim();
@@ -150,7 +164,14 @@ export function PathfinderChat({
     let conversationId = conversationIdRef.current;
 
     try {
-      const res = await ask(queryToAsk);
+      // `messages` here is the transcript as it was before this question was appended,
+      // which is exactly the history we want. Failed sends are dropped — they were never
+      // saved, and feeding "couldn't reach the backend" back in teaches Franklin nothing.
+      const history = messages
+        .filter((m) => !m.id.startsWith("temp-error-"))
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      const res = await ask(queryToAsk, history);
 
       const assistantMsg: ChatMessage = {
         id: `temp-assistant-${Date.now()}`,
@@ -279,34 +300,36 @@ export function PathfinderChat({
                   </h3>
                 </div>
                 <div
-                  ref={scrollContainerRef}
+                  ref={scrollRef}
                   onScroll={handleScroll}
-                  className="flex-1 overflow-y-auto px-8 py-6 archer-scroll space-y-6"
+                  className="flex-1 overflow-y-auto px-8 py-6 archer-scroll"
                 >
-                  {!hasMessages && !isAsking && activeConversationId && (
-                    <p className="text-sm text-gray-500 text-center py-4">
-                      No messages in this chat yet. Ask a question below to continue.
-                    </p>
-                  )}
-                  {messages.map((msg) =>
-                    msg.role === "user" ? (
-                      <div key={msg.id} className="flex justify-end">
-                        <div className="max-w-[85%] bg-[#173C7A] text-white text-[15px] leading-relaxed px-4 py-3 rounded-2xl rounded-br-md">
-                          {msg.content}
+                  <div ref={contentRef} className="space-y-6">
+                    {!hasMessages && !isAsking && activeConversationId && (
+                      <p className="text-sm text-gray-500 text-center py-4">
+                        No messages in this chat yet. Ask a question below to continue.
+                      </p>
+                    )}
+                    {messages.map((msg) =>
+                      msg.role === "user" ? (
+                        <div key={msg.id} className="flex justify-end">
+                          <div className="max-w-[85%] bg-[#173C7A] text-white text-[15px] leading-relaxed px-4 py-3 rounded-2xl rounded-br-md">
+                            {msg.content}
+                          </div>
                         </div>
+                      ) : (
+                        <div key={msg.id} className="min-w-0">
+                          {renderAssistantContent(msg)}
+                        </div>
+                      )
+                    )}
+                    {isAsking && messages[messages.length - 1]?.role === "user" && (
+                      <div className="flex items-center gap-2 text-gray-500 text-[15px]">
+                        <Loader2 className="animate-spin" size={16} />
+                        <span>Thinking…</span>
                       </div>
-                    ) : (
-                      <div key={msg.id} className="min-w-0">
-                        {renderAssistantContent(msg)}
-                      </div>
-                    )
-                  )}
-                  {isAsking && messages[messages.length - 1]?.role === "user" && (
-                    <div className="flex items-center gap-2 text-gray-500 text-[15px]">
-                      <Loader2 className="animate-spin" size={16} />
-                      <span>Thinking…</span>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             </motion.div>
