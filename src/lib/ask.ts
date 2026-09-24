@@ -20,9 +20,20 @@ export type AskResponse = {
   classified?: ClassifiedProcess[];
   framework_refs_used?: string[];
   was_filtered?: boolean;
+  /** True when a follow-up bypassed the out-of-scope refusal and answered without a framework filter. */
+  scope_fallback?: boolean;
   sources?: AskSource[];
   worksheets?: string[];
+  search_errors?: string[];
 };
+
+export type AskHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+/** How many prior messages travel with each question. Three exchanges. */
+export const ASK_HISTORY_LIMIT = 6;
 
 export const FRIENDLY_ASK_ERROR_MESSAGE =
   "Sorry — I couldn't reach the backend right now. Please try again.";
@@ -65,9 +76,12 @@ function formatSupabaseFunctionError(error: unknown): string {
   return `${name}${message}${status}${statusText}${body}`.trim();
 }
 
-export async function ask(query: string): Promise<AskResponse> {
+export async function ask(
+  query: string,
+  history: AskHistoryMessage[] = [],
+): Promise<AskResponse> {
   const { data, error } = await supabase.functions.invoke<AskResponse>("ask", {
-    body: { query },
+    body: { query, history: history.slice(-ASK_HISTORY_LIMIT) },
   });
 
   if (error) throw new AskError(formatSupabaseFunctionError(error));

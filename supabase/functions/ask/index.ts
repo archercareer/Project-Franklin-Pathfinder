@@ -1,4 +1,8 @@
-// Project Franklin — ask (v23)
+// Project Franklin — ask (v24)
+// v24 (M7): accepts recent conversation turns and passes them to both the classifier and the
+//      answer, so follow-ups resolve instead of being read as standalone questions. Plus a
+//      backstop: with history present the out-of-scope refusal is never returned, since a
+//      follow-up's meaning lives in the turn before it. Fixes the "which gpt?" refusal loop.
 // v22: removed Ascent-specific framing (general career-coaching product now); tone/structure
 //      pass on the system prompt — match tone to the person, always close with a next step or
 //      clarifying question, warm peer voice, explicit honesty when content doesn't cover it.
@@ -17,6 +21,8 @@ const ANSWER_MODEL   = Deno.env.get("ANSWER_MODEL")   ?? DEFAULT_MODEL;
 const TOP_K = 5;
 const ANSWER_MAX_TOKENS = 2000;
 const MAX_PAUSE_RESUMES = 3;
+const HISTORY_LIMIT = 6;
+const HISTORY_CHAR_CAP = 4000;
 
 const SHEET_ID = "1e--YxqN7X6vaoObkqgjGBgt5BTzeDyW-9-pCKzjlcps";
 const GID = "442416528";
@@ -137,14 +143,32 @@ function frameworkList(fw: Framework): string {
   return lines.join("\n");
 }
 
+// ---------- conversation history ----------
+// The client sends recent turns so follow-ups resolve ("what about the second one?").
+// Treat them as untrusted input: cap the count and the size, keep only well-formed turns,
+// and never let the array open on an assistant turn — the API rejects that.
+interface Turn { role: "user" | "assistant"; content: string; }
+
+function sanitizeHistory(raw: unknown): Turn[] {
+  if (!Array.isArray(raw)) return [];
+  const clean = raw
+    .filter((m: any) => m && (m.role === "user" || m.role === "assistant")
+      && typeof m.content === "string" && m.content.trim().length > 0)
+    .slice(-HISTORY_LIMIT)
+    .map((m: any) => ({ role: m.role as "user" | "assistant", content: m.content.slice(0, HISTORY_CHAR_CAP) }));
+  while (clean.length && clean[0].role === "assistant") clean.shift();
+  return clean;
+}
+
 // ---------- query classification ----------
 interface Pair { phase: number; process: number; }
-async function classifyQuery(query: string, fw: Framework, key: string): Promise<{ pairs: Pair[]; zero: boolean; invalid: boolean }> {
+async function classifyQuery(query: string, fw: Framework, key: string, history: Turn[] = []): Promise<{ pairs: Pair[]; zero: boolean; invalid: boolean }> {
   const sys = `You classify a person's career-coaching question against a fixed framework.
 
 FRAMEWORK (phase.process):
 ${frameworkList(fw)}
 
+Earlier turns of the conversation may be included before the question. Classify the LAST user message only; use the earlier turns solely to work out what it refers to. A short follow-up like "what about the second one?" is in scope whenever the turn it refers back to was.
 Return the 1 to 3 MOST relevant reference points in "phase.process" format (two numbers).
 If the question has NO genuine connection to any process (e.g. weather, sports, unrelated chit-chat), return exactly ["0.0"].
 Return STRICT JSON only, no prose, no fences: {"refs":["p.p", ...]}`;
@@ -154,7 +178,7 @@ Return STRICT JSON only, no prose, no fences: {"refs":["p.p", ...]}`;
     headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({ model: CLASSIFY_MODEL, max_tokens: 80,
       system: [{ type: "text", text: sys, cache_control: { type: "ephemeral" } }],
-      messages: [{ role: "user", content: query }] }),
+      messages: [...history, { role: "user", content: query }] }),
   });
   if (!res.ok) return { pairs: [], zero: false, invalid: true };
   const data = await res.json();
@@ -196,8 +220,12 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405, headers: CORS });
 
-  let query: string, pretty = false;
-  try { const b = await req.json(); query = b.query?.trim(); pretty = b.pretty === true; if (!query) throw new Error("Missing query"); }
+  let query: string, pretty = false, history: Turn[] = [];
+  try {
+    const b = await req.json();
+    query = b.query?.trim(); pretty = b.pretty === true; history = sanitizeHistory(b.history);
+    if (!query) throw new Error("Missing query");
+  }
   catch (e) { return jsonResp({ error: String(e) }, 400); }
 
   const voyageKey = Deno.env.get("VOYAGE_API_KEY")!;
@@ -214,13 +242,23 @@ Deno.serve(async (req) => {
     fetch(VOYAGE_API, { method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${voyageKey}` },
       body: JSON.stringify({ model: VOYAGE_MODEL, input: query, input_type: "query" }) }),
-    classifyQuery(query, fw, anthropicKey),
+    classifyQuery(query, fw, anthropicKey, history),
   ]);
 
-  if (cls.invalid) {
+  // A short follow-up inside a live conversation ("which gpt?", "why?") carries no career
+  // content of its own, so the classifier scores it unrelated and we used to refuse — three
+  // times in a row, identically, while the person was asking about something we had just
+  // raised. The meaning lives in the previous turn. So: when there is history, never hard
+  // refuse. Drop the framework filter and let the similarity fallback answer instead.
+  // Telling the classifier to use the history is the primary fix; this is the backstop for
+  // when it doesn't.
+  const isFollowUp = history.length > 0;
+  const scopeFallback = (cls.invalid || cls.zero) && isFollowUp;
+
+  if (cls.invalid && !isFollowUp) {
     return jsonResp({ answer: "That one's outside what I can help with — I'm focused on career and job-search coaching. What are you working on? I can dig into search strategy, positioning, networking, resumes and cover letters, or interviews.", classified: [], worksheets: [] });
   }
-  if (cls.zero) {
+  if (cls.zero && !isFollowUp) {
     return jsonResp({ answer: "That's outside what I can help with here, but I'm glad to get into career direction, positioning, networking, resumes and cover letters, interviews, or managing your job search day to day — what would be most useful?", classified: [], worksheets: [] });
   }
 
@@ -284,11 +322,14 @@ How to respond:
 - Stay inside what you were given. If the framework and excerpts don't really cover what they're asking, say so plainly instead of filling the gap with a guess — then point them to the closest thing that would actually help.
 - Never end on a bare statement of information. Close every reply with either a clear next step — something specific they can go do, in your own words — or a genuine clarifying question when you can't give a useful answer without knowing more.${taskNote}${fallbackNote}`;
 
-  const userPrompt = `LAYER 1 — Coaching framework context:\n${layer1}\n\n---\n\nLAYER 2 — Retrieved program excerpts:\n${layer2 || "(none)"}\n\n---\n\nLAYER 3 — Person's question:\n${query}`;
+  const layer1Text = layer1 ||
+    "(none — this is a follow-up to the conversation above. Work out what it refers to from the earlier turns, and answer from those plus the excerpts below. Do not tell the person their question is out of scope.)";
+
+  const userPrompt = `LAYER 1 — Coaching framework context:\n${layer1Text}\n\n---\n\nLAYER 2 — Retrieved program excerpts:\n${layer2 || "(none)"}\n\n---\n\nLAYER 3 — Person's question:\n${query}`;
 
   // Web search can pause a turn partway through; resume by handing the paused content back
   // and letting the model continue. Bounded so a pause loop can't run away.
-  const genMessages: any[] = [{ role: "user", content: userPrompt }];
+  const genMessages: any[] = [...history, { role: "user", content: userPrompt }];
   const answerBlocks: any[] = [];
   const searchFailures: string[] = [];
 
@@ -330,8 +371,8 @@ How to respond:
     const srcs = sources.map((s) => `  [${s.source}] (${s.similarity}) ${s.refs?.join(",")} ${s.preview}`).join("\n");
     const ws = worksheets.length ? worksheets.map((w) => `  ${w}`).join("\n") : "  (none)";
     const se = searchFailures.length ? searchFailures.join(", ") : "(none)";
-    return new Response([d, `QUESTION: ${query}`, `CLASSIFIED: ${cl}`, `SELECTED TASK: ${selectedTask ?? "none"}`, `MODELS: classify=${CLASSIFY_MODEL} answer=${ANSWER_MODEL}`, `FILTERED: ${wasFiltered}`, `SEARCH ERRORS: ${se}`, d, answer, d, "WORKSHEETS (selected task only)", ws, d, "SOURCES", srcs, d].join("\n"),
+    return new Response([d, `QUESTION: ${query}`, `CLASSIFIED: ${cl}`, `SELECTED TASK: ${selectedTask ?? "none"}`, `MODELS: classify=${CLASSIFY_MODEL} answer=${ANSWER_MODEL}`, `FILTERED: ${wasFiltered}`, `HISTORY: ${history.length} turn(s)`, `SCOPE FALLBACK: ${scopeFallback}`, `SEARCH ERRORS: ${se}`, d, answer, d, "WORKSHEETS (selected task only)", ws, d, "SOURCES", srcs, d].join("\n"),
       { headers: { ...CORS, "Content-Type": "text/plain" } });
   }
-  return jsonResp({ answer, classified, selected_task: selectedTask, framework_refs_used: refsUsed, was_filtered: wasFiltered, worksheets, sources, search_errors: searchFailures });
+  return jsonResp({ answer, classified, selected_task: selectedTask, framework_refs_used: refsUsed, was_filtered: wasFiltered, scope_fallback: scopeFallback, worksheets, sources, search_errors: searchFailures });
 });

@@ -164,7 +164,14 @@ export function PathfinderChat({
     let conversationId = conversationIdRef.current;
 
     try {
-      const res = await ask(queryToAsk);
+      // `messages` here is the transcript as it was before this question was appended,
+      // which is exactly the history we want. Failed sends are dropped — they were never
+      // saved, and feeding "couldn't reach the backend" back in teaches Franklin nothing.
+      const history = messages
+        .filter((m) => !m.id.startsWith("temp-error-"))
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      const res = await ask(queryToAsk, history);
 
       const assistantMsg: ChatMessage = {
         id: `temp-assistant-${Date.now()}`,

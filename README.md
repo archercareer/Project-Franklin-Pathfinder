@@ -25,12 +25,12 @@ This repo holds **the frontend and the `ask` Edge Function**. Accounts, data, th
 
 ## What happens when a student asks a question
 
-1. The app sends the question to a Supabase Edge Function called **`ask`**. Nothing else is sent — one question per request.
+1. The app sends the question to a Supabase Edge Function called **`ask`**, along with the last few turns of the current chat so follow-up questions make sense.
 2. `ask` figures out which parts of the program the question is about, finds the most relevant passages from the uploaded documents, and writes an answer grounded in them.
 3. The answer comes back and is displayed.
 4. The app saves the question and the answer to the database, so the chat shows up in the sidebar and can be reopened later.
 
-Steps 1 and 3 are the only server calls involved in answering. Saving (step 4) is done by this app writing directly to the database. There is no server-side chat memory, and each question is answered on its own.
+Steps 1 and 3 are the only server calls involved in answering. Saving (step 4) is done by this app writing directly to the database. There is still no server-side chat memory: the backend keeps nothing between requests, and the app resends the recent turns each time.
 
 Answers take roughly **5–10 seconds**. That is normal, not a bug.
 
@@ -138,7 +138,21 @@ This app depends on four things in Supabase. If any of them change, this app has
 The only Edge Function this app calls. Called through the Supabase client
 ([src/lib/ask.ts](src/lib/ask.ts)).
 
-**Sent:** `{ "query": "How do I write a strong cover letter?" }`
+**Sent:**
+
+```json
+{
+  "query": "How do I write a strong cover letter?",
+  "history": [{ "role": "user", "content": "..." }, { "role": "assistant", "content": "..." }]
+}
+```
+
+`history` is the last 6 messages of the current chat (`ASK_HISTORY_LIMIT` in
+[src/lib/ask.ts](src/lib/ask.ts)), oldest first, with failed sends left out. It is optional —
+the backend works without it and treats anything malformed as absent. The backend caps it again
+on its own side and passes it to both the classifier and the answer, so a follow-up like "what
+about the second one?" is classified against what it refers back to rather than read as a
+standalone question.
 
 **Returned:**
 
