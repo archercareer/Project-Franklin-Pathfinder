@@ -26,13 +26,15 @@ This repo holds **the frontend and the `ask` Edge Function**. Accounts, data, th
 ## What happens when a student asks a question
 
 1. The app sends the question to a Supabase Edge Function called **`ask`**, along with the last few turns of the current chat so follow-up questions make sense.
-2. `ask` figures out which parts of the program the question is about, finds the most relevant passages from the uploaded documents, and writes an answer grounded in them.
+2. `ask` figures out which parts of the program the question is about, finds the most relevant passages from the uploaded documents, and writes an answer grounded in them. For target-role coaching, it can also route to one of five Take Aim jobs: motivation, role understanding, role requirements, transferable experience, or meaningful gaps.
 3. The answer comes back and is displayed.
-4. The app saves the question and the answer to the database, so the chat shows up in the sidebar and can be reopened later.
+4. The app saves the question and the answer to the database, including the selected Take Aim job in assistant message metadata, so the chat shows up in the sidebar and can be reopened later.
 
 Steps 1 and 3 are the only server calls involved in answering. Saving (step 4) is done by this app writing directly to the database. There is still no server-side chat memory: the backend keeps nothing between requests, and the app resends the recent turns each time.
 
 Answers take roughly **5–10 seconds**. That is normal, not a bug.
+
+The Take Aim coaching rules and Archer Custom GPT directory are in [supabase/functions/ask/takeAim.ts](supabase/functions/ask/takeAim.ts) and are added to both the `ask` classifier and answer-model context. The directory includes the exact four coaches shown in the app's left sidebar (Job Search, Networking, Resume, Interview), plus the Archer stage GPTs and JTBD Expansion. Franklin can explain what each is for and return the relevant direct link. Pathfinder continues coaching natively and offers a task-specific link only when useful. Those GPTs open in separate ChatGPT conversations; Pathfinder history and profile data are not shared with them. Pathfinder can analyze job descriptions or role information a seeker provides, but live employer/job-posting research is not enabled. The acceptance checklist is [docs/take-aim-pathfinder-test-plan.md](docs/take-aim-pathfinder-test-plan.md). Persistent structured Job Search State and a per-turn activity log are not part of this integration.
 
 ---
 
@@ -165,6 +167,8 @@ standalone question.
 | `sources` | The passages behind the answer like file name, references, similarity score, and a preview. |
 | `worksheets` | Worksheet links. Declared in our types but not currently displayed on its own; worksheet links reach students inside the answer text. |
 | `search_errors` | Web search failures for this answer, as error codes. Empty until web search is switched on. A non-empty list means the answer was written without a lookup that was attempted. |
+| `take_aim_job` | The selected Take Aim job (`motivation`, `role_understanding`, `role_requirements`, `transferable_experience`, or `meaningful_gaps`), or `null` when the question is not routed to Take Aim. |
+| `recommended_gpt` | The relevant Archer Custom GPT (`take_aim`, `positioning`, or `explore`), or `null` when no specialist link is relevant. The frontend displays the link and notes that conversation context is not shared. |
 
 The app renders `answer` and stores the rest alongside the message, so a reopened chat
 looks exactly as it did the first time.
