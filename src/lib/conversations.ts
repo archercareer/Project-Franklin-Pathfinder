@@ -16,6 +16,8 @@ export type ChatMessage = {
 };
 
 export type AssistantMessageMetadata = {
+  take_aim_job?: AskResponse["take_aim_job"];
+  recommended_gpt?: AskResponse["recommended_gpt"];
   sources?: AskResponse["sources"];
   classified?: AskResponse["classified"];
   framework_refs_used?: AskResponse["framework_refs_used"];

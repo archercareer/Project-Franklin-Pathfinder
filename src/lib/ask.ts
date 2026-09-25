@@ -17,6 +17,8 @@ export type AskSource = {
 
 export type AskResponse = {
   answer: string;
+  take_aim_job?: "motivation" | "role_understanding" | "role_requirements" | "transferable_experience" | "meaningful_gaps" | null;
+  recommended_gpt?: "job_search_coach" | "networking_coach" | "resume_coach" | "interview_coach" | "explore" | "focus" | "take_aim" | "positioning" | "relationship_readiness" | "build_relationships" | "build_resume" | "build_cover_letter" | "master_interview" | "execute_search" | "negotiate_offer" | "search_wrap_up" | "jtbd_expansion" | null;
   classified?: ClassifiedProcess[];
   framework_refs_used?: string[];
   was_filtered?: boolean;

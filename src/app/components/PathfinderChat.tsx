@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Loader2 } from "lucide-react";
+import { ExternalLink, Loader2 } from "lucide-react";
 import logo from "../../imports/image.png";
-import { ask, AskError } from "@/lib/ask";
+import { ask, AskError, type AskResponse } from "@/lib/ask";
 import {
   saveExchange,
   type ChatMessage,
@@ -10,6 +10,100 @@ import {
 import { FormattedAnswer } from "./FormattedAnswer";
 
 const MAX_COMPOSER_HEIGHT = 200;
+
+type RecommendedGptId = NonNullable<AskResponse["recommended_gpt"]>;
+
+const recommendedGpts: Record<RecommendedGptId, { id: RecommendedGptId; name: string; url: string }> = {
+  job_search_coach: {
+    id: "job_search_coach",
+    name: "Job Search Coach",
+    url: "https://chatgpt.com/g/g-6994a70db24c8191a903c64842cf85df-archer-job-search-target-list",
+  },
+  networking_coach: {
+    id: "networking_coach",
+    name: "Networking Coach",
+    url: "https://chatgpt.com/g/g-691d0b3e51208191a91890adf323089f-archer-networking-coach",
+  },
+  resume_coach: {
+    id: "resume_coach",
+    name: "Resume Coach",
+    url: "https://chatgpt.com/g/g-688a2d3690788191a2b3a32bd6449032-archer-resume-coach",
+  },
+  interview_coach: {
+    id: "interview_coach",
+    name: "Interview Coach",
+    url: "https://chatgpt.com/g/g-68c4389c741c81919b4a0f3dacf0b555-archer-interview-coach",
+  },
+  explore: {
+    id: "explore",
+    name: "Explore",
+    url: "https://chatgpt.com/g/g-6aaa2c4711888191be9f0d1635e6e0a2-archer-explore",
+  },
+  focus: {
+    id: "focus",
+    name: "Focus",
+    url: "https://chatgpt.com/g/g-6aaa2dfec9448191a4c6d30b5a7e4f4d-archer-focus",
+  },
+  take_aim: {
+    id: "take_aim",
+    name: "Take Aim",
+    url: "https://chatgpt.com/g/g-6aa99b2ec1308191b04ee0d93ca75ed2-archer-take-aim",
+  },
+  positioning: {
+    id: "positioning",
+    name: "Establish Positioning",
+    url: "https://chatgpt.com/g/g-6aa9f9551f088191a463aeefafd2fe5e-archer-establish-positioning",
+  },
+  relationship_readiness: {
+    id: "relationship_readiness",
+    name: "Relationship Readiness",
+    url: "https://chatgpt.com/g/g-6aa9fa7f2e54819194fe10af2eb3f77a-archer-relationship-readiness",
+  },
+  build_relationships: {
+    id: "build_relationships",
+    name: "Build Relationships",
+    url: "https://chatgpt.com/g/g-6aaa2f34082c8191b83dcca0004c61f0-archer-build-relationships",
+  },
+  build_resume: {
+    id: "build_resume",
+    name: "Build Resume",
+    url: "https://chatgpt.com/g/g-6aa9fab95d8c81918d66eb6a17f01d82-archer-build-resume",
+  },
+  build_cover_letter: {
+    id: "build_cover_letter",
+    name: "Build Cover Letter",
+    url: "https://chatgpt.com/g/g-6aaa30a5d3908191af99e91b80ae03b9-archer-build-cover-letter",
+  },
+  master_interview: {
+    id: "master_interview",
+    name: "Master the Interview",
+    url: "https://chatgpt.com/g/g-6aa9faee518c8191b7af3df344646a7b-archer-master-the-interview",
+  },
+  execute_search: {
+    id: "execute_search",
+    name: "Execute Search",
+    url: "https://chatgpt.com/g/g-6aaa31eb4c2c81918f17e540fc80e523-archer-execute-search",
+  },
+  negotiate_offer: {
+    id: "negotiate_offer",
+    name: "Negotiate Offer",
+    url: "https://chatgpt.com/g/g-6aa9fb2c13008191ada4cd64548af032-archer-negotiate-offer",
+  },
+  search_wrap_up: {
+    id: "search_wrap_up",
+    name: "Search Wrap-Up",
+    url: "https://chatgpt.com/g/g-6aaa330a4e808191a25619e014113deb-archer-search-wrap-up",
+  },
+  jtbd_expansion: {
+    id: "jtbd_expansion",
+    name: "JTBD Expansion",
+    url: "https://chatgpt.com/g/g-6a9f2f670a3c8191ae18b248d87cf0bc-archer-franklin-jtbd",
+  },
+};
+
+function getRecommendedGpt(value: unknown) {
+  return Object.values(recommendedGpts).find((gpt) => gpt.id === value) ?? null;
+}
 
 function sliceWithCompleteUrls(text: string, endIndex: number): string {
   const slice = text.slice(0, endIndex);
@@ -178,6 +272,8 @@ export function PathfinderChat({
         role: "assistant",
         content: res.answer,
         metadata: {
+          take_aim_job: res.take_aim_job,
+          recommended_gpt: res.recommended_gpt,
           sources: res.sources,
           classified: res.classified,
           framework_refs_used: res.framework_refs_used,
@@ -190,6 +286,8 @@ export function PathfinderChat({
       setAnimatingMessageId(assistantMsg.id);
 
       conversationId = await saveExchange(queryToAsk, res.answer, {
+        take_aim_job: res.take_aim_job,
+        recommended_gpt: res.recommended_gpt,
         sources: res.sources,
         classified: res.classified,
         framework_refs_used: res.framework_refs_used,
@@ -239,7 +337,28 @@ export function PathfinderChat({
       );
     }
 
-    return <FormattedAnswer text={msg.content} isTyping={false} />;
+    const gpt = getRecommendedGpt(msg.metadata?.recommended_gpt);
+    return (
+      <>
+        <FormattedAnswer text={msg.content} isTyping={false} />
+        {gpt && (
+          <div className="mt-4 rounded-xl border border-[#173C7A]/10 bg-[#173C7A]/[0.03] px-4 py-3">
+            <a
+              href={gpt.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-[#173C7A] hover:text-[#306FB8]"
+            >
+              Open Archer&apos;s {gpt.name} GPT
+              <ExternalLink size={14} aria-hidden="true" />
+            </a>
+            <p className="mt-1 text-xs text-gray-500">
+              Opens a separate ChatGPT conversation. Your Pathfinder chat and profile are not shared.
+            </p>
+          </div>
+        )}
+      </>
+    );
   };
 
   return (

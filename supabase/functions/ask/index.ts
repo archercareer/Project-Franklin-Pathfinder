@@ -1,4 +1,13 @@
-// Project Franklin — ask (v24)
+// Project Franklin — ask (v27)
+// v27: adds all Archer stage GPTs to classifier/coach context, returns a relevant GPT
+//      recommendation for a direct chat link, and explicitly describes their separate-session
+//      boundary. No linked GPT receives Pathfinder history or profile data.
+// v26: routes relevant questions to a task-appropriate Archer Custom GPT and returns that
+//      recommendation for a direct link in chat. The linked GPT opens separately and does
+//      not receive Pathfinder history or profile data.
+// v25: routes target-role coaching to one of five paired Take Aim JTBDs and records the
+//      selected job in the response metadata. The playbook explicitly avoids claiming live
+//      employer/job-posting research, which is not enabled in this function.
 // v24 (M7): accepts recent conversation turns and passes them to both the classifier and the
 //      answer, so follow-ups resolve instead of being read as standalone questions. Plus a
 //      backstop: with history present the out-of-scope refusal is never returned, since a
@@ -11,6 +20,15 @@
 //      instead of being mistaken for success.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  ARCHER_GPT_DIRECTORY,
+  isTakeAimJobId,
+  isRecommendedGpt,
+  TAKE_AIM_CLASSIFIER_GUIDANCE,
+  TAKE_AIM_PLAYBOOK,
+  type TakeAimJobId,
+  type RecommendedGpt,
+} from "./takeAim.ts";
 
 const VOYAGE_API   = "https://api.voyageai.com/v1/embeddings";
 const VOYAGE_MODEL = "voyage-3";
@@ -162,37 +180,45 @@ function sanitizeHistory(raw: unknown): Turn[] {
 
 // ---------- query classification ----------
 interface Pair { phase: number; process: number; }
-async function classifyQuery(query: string, fw: Framework, key: string, history: Turn[] = []): Promise<{ pairs: Pair[]; zero: boolean; invalid: boolean }> {
+async function classifyQuery(query: string, fw: Framework, key: string, history: Turn[] = []): Promise<{ pairs: Pair[]; zero: boolean; invalid: boolean; takeAimJob: TakeAimJobId | null; recommendedGpt: RecommendedGpt | null }> {
   const sys = `You classify a person's career-coaching question against a fixed framework.
 
 FRAMEWORK (phase.process):
 ${frameworkList(fw)}
 
+${ARCHER_GPT_DIRECTORY}
+
 Earlier turns of the conversation may be included before the question. Classify the LAST user message only; use the earlier turns solely to work out what it refers to. A short follow-up like "what about the second one?" is in scope whenever the turn it refers back to was.
 Return the 1 to 3 MOST relevant reference points in "phase.process" format (two numbers).
 If the question has NO genuine connection to any process (e.g. weather, sports, unrelated chit-chat), return exactly ["0.0"].
-Return STRICT JSON only, no prose, no fences: {"refs":["p.p", ...]}`;
+${TAKE_AIM_CLASSIFIER_GUIDANCE}`;
 
   const res = await fetch(ANTHROPIC_API, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: CLASSIFY_MODEL, max_tokens: 80,
+    body: JSON.stringify({ model: CLASSIFY_MODEL, max_tokens: 128,
       system: [{ type: "text", text: sys, cache_control: { type: "ephemeral" } }],
       messages: [...history, { role: "user", content: query }] }),
   });
-  if (!res.ok) return { pairs: [], zero: false, invalid: true };
+  if (!res.ok) return { pairs: [], zero: false, invalid: true, takeAimJob: null, recommendedGpt: null };
   const data = await res.json();
   const raw = (data.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
-  let parsed: { refs?: string[] };
+  let parsed: { refs?: string[]; takeAimJob?: unknown; recommendedGpt?: unknown };
   try { parsed = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
-  catch { return { pairs: [], zero: false, invalid: true }; }
+  catch { return { pairs: [], zero: false, invalid: true, takeAimJob: null, recommendedGpt: null }; }
+  const takeAimJob = isTakeAimJobId(parsed.takeAimJob) ? parsed.takeAimJob : null;
+  const recommendedGpt = takeAimJob
+    ? "take_aim"
+    : isRecommendedGpt(parsed.recommendedGpt)
+      ? parsed.recommendedGpt
+      : null;
   const refs = [...new Set((parsed.refs ?? []).map((r) => String(r).trim()))].slice(0, 3);
-  if (refs.length === 0) return { pairs: [], zero: false, invalid: true };
-  if (refs.includes(ZERO)) return { pairs: [], zero: true, invalid: false };
+  if (refs.length === 0) return { pairs: [], zero: false, invalid: !takeAimJob && !recommendedGpt, takeAimJob, recommendedGpt };
+  if (refs.includes(ZERO)) return { pairs: [], zero: !takeAimJob && !recommendedGpt, invalid: false, takeAimJob, recommendedGpt };
   const valid = refs.filter((r) => fw.validKeys.has(r));
-  if (valid.length === 0) return { pairs: [], zero: false, invalid: true };
+  if (valid.length === 0) return { pairs: [], zero: false, invalid: !takeAimJob && !recommendedGpt, takeAimJob, recommendedGpt };
   const pairs = valid.map((r) => { const [p, q] = r.split(".").map(Number); return { phase: p, process: q }; });
-  return { pairs, zero: false, invalid: false };
+  return { pairs, zero: false, invalid: false, takeAimJob, recommendedGpt };
 }
 
 // ---------- answer blocks ----------
@@ -303,6 +329,10 @@ Deno.serve(async (req) => {
 
   const systemPrompt = `You are Pathfinder, a career-coaching assistant. You help people navigate their careers — direction and positioning, networking, resumes and cover letters, interviews, and running a job search day to day.
 
+${TAKE_AIM_PLAYBOOK}
+
+${ARCHER_GPT_DIRECTORY}
+
 You're given three layers: (1) a coaching framework for the area(s) this question touches — pain points, tasks, expected outputs, and worksheet links where they exist; (2) a few relevant excerpts from the available coaching materials; (3) the person's actual question.
 
 How to respond:
@@ -325,7 +355,10 @@ How to respond:
   const layer1Text = layer1 ||
     "(none — this is a follow-up to the conversation above. Work out what it refers to from the earlier turns, and answer from those plus the excerpts below. Do not tell the person their question is out of scope.)";
 
-  const userPrompt = `LAYER 1 — Coaching framework context:\n${layer1Text}\n\n---\n\nLAYER 2 — Retrieved program excerpts:\n${layer2 || "(none)"}\n\n---\n\nLAYER 3 — Person's question:\n${query}`;
+  const takeAimContext = cls.takeAimJob
+    ? `\n\nTAKE AIM ROUTING — Current job: ${cls.takeAimJob}. Apply the matching paired Seeker/Coach instructions in the playbook.`
+    : "";
+  const userPrompt = `LAYER 1 — Coaching framework context:\n${layer1Text}\n\n---\n\nLAYER 2 — Retrieved program excerpts:\n${layer2 || "(none)"}\n\n---\n\nLAYER 3 — Person's question:\n${query}${takeAimContext}`;
 
   // Web search can pause a turn partway through; resume by handing the paused content back
   // and letting the model continue. Bounded so a pause loop can't run away.
@@ -371,8 +404,8 @@ How to respond:
     const srcs = sources.map((s) => `  [${s.source}] (${s.similarity}) ${s.refs?.join(",")} ${s.preview}`).join("\n");
     const ws = worksheets.length ? worksheets.map((w) => `  ${w}`).join("\n") : "  (none)";
     const se = searchFailures.length ? searchFailures.join(", ") : "(none)";
-    return new Response([d, `QUESTION: ${query}`, `CLASSIFIED: ${cl}`, `SELECTED TASK: ${selectedTask ?? "none"}`, `MODELS: classify=${CLASSIFY_MODEL} answer=${ANSWER_MODEL}`, `FILTERED: ${wasFiltered}`, `HISTORY: ${history.length} turn(s)`, `SCOPE FALLBACK: ${scopeFallback}`, `SEARCH ERRORS: ${se}`, d, answer, d, "WORKSHEETS (selected task only)", ws, d, "SOURCES", srcs, d].join("\n"),
+    return new Response([d, `QUESTION: ${query}`, `CLASSIFIED: ${cl}`, `TAKE AIM JOB: ${cls.takeAimJob ?? "none"}`, `RECOMMENDED GPT: ${cls.recommendedGpt ?? "none"}`, `SELECTED TASK: ${selectedTask ?? "none"}`, `MODELS: classify=${CLASSIFY_MODEL} answer=${ANSWER_MODEL}`, `FILTERED: ${wasFiltered}`, `HISTORY: ${history.length} turn(s)`, `SCOPE FALLBACK: ${scopeFallback}`, `SEARCH ERRORS: ${se}`, d, answer, d, "WORKSHEETS (selected task only)", ws, d, "SOURCES", srcs, d].join("\n"),
       { headers: { ...CORS, "Content-Type": "text/plain" } });
   }
-  return jsonResp({ answer, classified, selected_task: selectedTask, framework_refs_used: refsUsed, was_filtered: wasFiltered, scope_fallback: scopeFallback, worksheets, sources, search_errors: searchFailures });
+  return jsonResp({ answer, classified, selected_task: selectedTask, take_aim_job: cls.takeAimJob, recommended_gpt: cls.recommendedGpt, framework_refs_used: refsUsed, was_filtered: wasFiltered, scope_fallback: scopeFallback, worksheets, sources, search_errors: searchFailures });
 });
