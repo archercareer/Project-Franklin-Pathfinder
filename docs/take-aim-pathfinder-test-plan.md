@@ -1,7 +1,5 @@
 # Take Aim in Pathfinder: acceptance test checklist
 
-**Google Sheets-ready workbook:** [Download the test plan spreadsheet](take-aim-pathfinder-test-plan.xlsx). Upload the `.xlsx` file to Google Drive and choose **Open with Google Sheets** to convert it into a Google Sheet.
-
 Use this checklist after deploying the updated `ask` Edge Function. The Take Aim coach runs in the existing Pathfinder chat and uses the same signed-in or guest session as the rest of the app. Record the account type, target role, prompt, actual response, and pass/fail for each run. Do not use real personal information in test notes.
 
 ## JTBD coverage
